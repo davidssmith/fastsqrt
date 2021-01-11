@@ -40,20 +40,19 @@ impl Coefs {
     fn mutate(&mut self, t: u32, nt: u32) {
         // let old_coefs: (u32, f32, f32) = (self.c1, self.c2, self.c3);
         let r: f32 = self.rng.gen();
-        let sigma: f32 = 0.001f32;
         let val: f32 = self.rng.sample(StandardNormal);
         if r < 0.3 {
-            self.c1 *= 1 + (self.c1 as f32 * val * sigma) as u32;
+            self.c1 = (self.c1 as i32 + (self.c1 as f32 * val * 0.001f32) as i32) as u32;
         } else if r < 0.6 {
-            self.c2 *= 1f32 + val * sigma;
+            self.c2 *= 1f32 + val * 0.01f32;
         } else if r < 0.9 {
-            self.c3 *= 1f32 + val * sigma;
+            self.c3 *= 1f32 + val * 0.01f32;
         } else {
             let w = 20 + nt/t;
             self.c1 += self.rng.gen_range(0..w) - w/2;
-            self.c2 *= 1f32 + val * sigma;
+            self.c2 *= 1f32 + val * 0.01f32;
             let val: f32 = self.rng.sample(StandardNormal);
-            self.c3 *= 1f32 + val * sigma;
+            self.c3 *= 1f32 + val * 0.01f32;
         }
         // println!("{} {:?} -> ({},{},{})", r,    old_coefs, self.c1, self.c2, self.c3);
     }
@@ -69,16 +68,27 @@ impl Coefs {
     }
     fn update_fitness(&mut self) {
         let mut top_errors = [(0f32, 0f32); 4];
-        for i in 0..512 {
-            let x = 1.0f32 + (i as f32) * 3.0f32 / 512f32;
+        self.rms_error = 0.0;
+        const NSTEPS: u32 = 512;
+        // coarsely explore interval [1,4)
+        for i in 0..NSTEPS {
+            let x = 1.0f32 + (i as f32) * 3.0f32 / (NSTEPS as f32);
             let error = self.approx_error(x);
             for j in 0..4 {
                 if top_errors[j].1 < error {
                     top_errors[j].1 = error;
                     top_errors[j].0 = x;
+                    for k in (j+1..4).rev() {
+                        top_errors[k] = top_errors[k-1];
+                    }
                 }
             }
+            self.rms_error += error*error;
         }
+        // explore regions around top-4 error
+        
+    
+        self.rms_error /= NSTEPS as f32;
         self.max_error = top_errors[0].1;
     }
     fn step(&mut self, t: u32, nt: u32) {
@@ -124,8 +134,8 @@ impl Display for Coefs {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "y.u = 0x{:x} - (y.u >> 1); {:.9}f * y.f * ({:1.9}f - x * y.f * y.f)",
-            self.c1, self.c2, self.c3
+            "max={:.10} rms={:e} y.u = 0x{:x} - (y.u >> 1); {:.9}f * y.f * ({:1.9}f - x * y.f * y.f)",
+            self.max_error, self.rms_error, self.c1, self.c2, self.c3
         )
     }
 }
@@ -143,26 +153,23 @@ impl Population {
     }
     fn evolve(&mut self, nt: u32) {
         for t in 0..nt {
-            self.coefs.par_iter_mut().for_each(|c| c.step(t, nt));
+            self.coefs[30..].par_iter_mut().for_each(|c| c.step(t, nt));
             self.coefs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let nkeep = 10;
+            let nkeep = 50;
             for i in nkeep..self.coefs.len()/2 {
                 self.coefs[i].c1 = self.coefs[i % nkeep].c1;
                 self.coefs[i].c2 = self.coefs[i % nkeep].c2;
                 self.coefs[i].c3 = self.coefs[i % nkeep].c3;
             }
             if t % (nt / 100) == 0 {
-                println!(
-                    "[{}] best: fitness={}  {}", t,
-                    self.coefs[0].max_error, self.coefs[0]
-                );
+                println!("{:6}. {}", t, self.coefs[0]);
             }
         }
     }
 }
 
 fn main() {
-    let mut p = Population::with_capacity(100);
+    let mut p = Population::with_capacity(1000);
     let mut coefs_start = p.coefs[0].clone();
     coefs_start.update_fitness();
     let start = Instant::now();
