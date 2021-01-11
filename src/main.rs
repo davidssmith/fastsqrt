@@ -1,11 +1,14 @@
 use std::cmp::Ordering;
 
 use std::fmt::{self, Display};
+use std::time::Instant;
 
 // use rand::distributions::{Distribution, Uniform};
 use rand::{thread_rng, Rng, SeedableRng};
 use rand_distr::StandardNormal;
 use rand_pcg::Pcg64;
+use rayon::prelude::*;
+
 
 #[repr(C)]
 union FloatInt {
@@ -34,23 +37,23 @@ impl Coefs {
             rms_error: std::f32::MAX,
         }
     }
-    fn mutate(&mut self) {
+    fn mutate(&mut self, t: u32, nt: u32) {
         // let old_coefs: (u32, f32, f32) = (self.c1, self.c2, self.c3);
         let r: f32 = self.rng.gen();
+        let sigma: f32 = 0.001f32;
+        let val: f32 = self.rng.sample(StandardNormal);
         if r < 0.3 {
-            self.c1 += self.rng.gen_range(0..21) - 10;
+            self.c1 *= 1 + (self.c1 as f32 * val * sigma) as u32;
         } else if r < 0.6 {
-            let val: f32 = self.rng.sample(StandardNormal);
-            self.c2 = self.c2 * (1f32 + val * 0.01f32);
+            self.c2 *= 1f32 + val * sigma;
         } else if r < 0.9 {
-            let val: f32 = self.rng.sample(StandardNormal);
-            self.c3 = self.c3 * (1f32 + val * 0.01f32);
+            self.c3 *= 1f32 + val * sigma;
         } else {
-            self.c1 += self.rng.gen_range(0..21) - 10;
+            let w = 20 + nt/t;
+            self.c1 += self.rng.gen_range(0..w) - w/2;
+            self.c2 *= 1f32 + val * sigma;
             let val: f32 = self.rng.sample(StandardNormal);
-            self.c2 = self.c2 * (1f32 + val * 0.01f32);
-            let val: f32 = self.rng.sample(StandardNormal);
-            self.c3 = self.c3 * (1f32 + val * 0.01f32);
+            self.c3 *= 1f32 + val * sigma;
         }
         // println!("{} {:?} -> ({},{},{})", r,    old_coefs, self.c1, self.c2, self.c3);
     }
@@ -59,16 +62,28 @@ impl Coefs {
         y.u = unsafe { self.c1 - (y.u >> 1) };
         return self.c2 * unsafe { y.f * (self.c3 - x * y.f * y.f) };
     }
-    fn fitness(&mut self) {
-        // let mut errors = [0f32; 512];
-        self.max_error = 0.0;
-        for i in 0..2048 {
-            let x = 1.0f32 + (i as f32) * 3.0f32 / 2048f32;
-            let y_approx = self.inv_sqrt(x);
-            let y_true = 1.0f32 / x.sqrt();
-            let error = (y_approx - y_true).abs();
-            self.max_error = self.max_error.max(error);
+    fn approx_error(&mut self, x: f32) -> f32 {
+        let y_approx = self.inv_sqrt(x);
+        let y_true = 1.0f32 / x.sqrt();
+        (y_approx - y_true).abs()
+    }
+    fn update_fitness(&mut self) {
+        let mut top_errors = [(0f32, 0f32); 4];
+        for i in 0..512 {
+            let x = 1.0f32 + (i as f32) * 3.0f32 / 512f32;
+            let error = self.approx_error(x);
+            for j in 0..4 {
+                if top_errors[j].1 < error {
+                    top_errors[j].1 = error;
+                    top_errors[j].0 = x;
+                }
+            }
         }
+        self.max_error = top_errors[0].1;
+    }
+    fn step(&mut self, t: u32, nt: u32) {
+        self.mutate(t+1, nt);
+        self.update_fitness();
     }
 }
 
@@ -126,44 +141,33 @@ impl Population {
             .collect();
         Population { coefs }
     }
-    // fn len(&self) -> usize {
-    //     self.coefs.len()
-    // }
-    fn mutate(&mut self) {
-        self.coefs[4..].iter_mut().for_each(|c| c.mutate());
-    }
     fn evolve(&mut self, nt: u32) {
         for t in 0..nt {
-            self.mutate();
-            self.fitnesses();
+            self.coefs.par_iter_mut().for_each(|c| c.step(t, nt));
             self.coefs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let nkeep = 2;
-            for i in nkeep..self.coefs.len() {
+            let nkeep = 10;
+            for i in nkeep..self.coefs.len()/2 {
                 self.coefs[i].c1 = self.coefs[i % nkeep].c1;
                 self.coefs[i].c2 = self.coefs[i % nkeep].c2;
                 self.coefs[i].c3 = self.coefs[i % nkeep].c3;
             }
             if t % (nt / 100) == 0 {
                 println!(
-                    "best: fitness={}  {}",
+                    "[{}] best: fitness={}  {}", t,
                     self.coefs[0].max_error, self.coefs[0]
                 );
             }
         }
     }
-    fn fitnesses(&mut self) {
-        self.coefs.iter_mut().for_each(|p| p.fitness());
-    }
-    // fn best_fitness(&self) -> f32 {
-    //     self.coefs[0].max_error
-    // }
 }
 
 fn main() {
-    let mut p = Population::with_capacity(1000);
+    let mut p = Population::with_capacity(100);
     let mut coefs_start = p.coefs[0].clone();
-    coefs_start.fitness();
-    p.evolve(100000);
+    coefs_start.update_fitness();
+    let start = Instant::now();
+    p.evolve(1000000);
     println!("start: {} {}\nend:   {} {}", coefs_start.max_error, coefs_start,
-        p.coefs[0].max_error, p.coefs[0])
+        p.coefs[0].max_error, p.coefs[0]);
+    println!("{:?} elapsed", Instant::now() - start);
 }
