@@ -28,7 +28,7 @@ struct Approx {
     c1: u32,
     c2: f32,
     c3: f32,
-    max_error: f32,
+    max_error: (f32, f32),
     rms_error: f32,
 }
 
@@ -36,10 +36,10 @@ impl Approx {
     fn from_seed(seed: u64) -> Self {
         let mut a = Approx {
             rng: Pcg64::seed_from_u64(seed),
-            c1: 0x5f1ffff9u32,
-            c2: 0.703952253f32,
-            c3: 2.38924456f32,
-            max_error: std::f32::NAN,
+            // 0x5f601800, 0.2485, 4.7832
+            c1: 0x5f1ffff9u32, c2: 0.703952253, c3: 2.38924456,
+            //c1: 0x5f601800, c2: 0.2485, c3: 4.7832,
+            max_error: (0f32, std::f32::NAN),
             rms_error: std::f32::NAN,
         };
         a.search_interval();
@@ -49,18 +49,27 @@ impl Approx {
         // let old_approx: (u32, f32, f32) = (self.c1, self.c2, self.c3);
         let r: f32 = self.rng.gen();
         let val: f32 = self.rng.sample(StandardNormal);
-        if r < 0.3 {
-            self.c1 = (self.c1 as i32 + (self.c1 as f32 * val * 0.001f32) as i32) as u32;
-        } else if r < 0.6 {
-            self.c2 *= 1f32 + val * 0.01f32;
-        } else if r < 0.9 {
-            self.c3 *= 1f32 + val * 0.01f32;
-        } else {
+        if r < 0.2 {
+            //self.c1 = (self.c1 as i32 + (self.c1 as f32 * val * 0.001f32) as i32) as u32;
             let w = 20 + nt/t;
             self.c1 += self.rng.gen_range(0..w) - w/2;
+        } else if r < 0.4 {
             self.c2 *= 1f32 + val * 0.01f32;
-            let val: f32 = self.rng.sample(StandardNormal);
+        } else if r < 0.6 {
             self.c3 *= 1f32 + val * 0.01f32;
+        } else if r < 0.7 {
+            let w = 0x100000;
+            self.c1 += self.rng.gen_range(0..w) - w/2;
+        } else if r < 0.8 {
+            self.c2 *= 1f32 + val * 0.5f32;
+        } else if r < 0.9 {
+            self.c3 *= 1f32 + val * 0.5f32;
+        } else {
+            //let w = 0x1000000;
+            self.c1 = self.rng.gen_range(0x5e00000..0x6100000);
+            self.c2 *= 1f32 + val * 0.5f32;
+            let val: f32 = self.rng.sample(StandardNormal);
+            self.c3 *= 1f32 + val * 0.5f32;
         }
         // println!("{} {:?} -> ({},{},{})", r,    old_approx, self.c1, self.c2, self.c3);
     }
@@ -72,7 +81,7 @@ impl Approx {
     fn error(&mut self, x: f32) -> f32 {
         let y_approx = self.inv_sqrt(x);
         let y_true = 1.0f32 / x.sqrt();
-        (y_approx - y_true).abs()
+        (y_approx - y_true).abs() / y_true
     }
     /// Find the peak of the function `error` within the interval `(a, b)`
     fn peak_find(&mut self, a: f32, b: f32) -> (f32, f32) {
@@ -119,7 +128,7 @@ impl Approx {
         }
         self.rms_error /= NDIV as f32;
         errors.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        self.max_error = errors[0].1;
+        self.max_error = errors[0];
         // explore regions around top-4 errors
         for i in 0..4 {
             // x is center, and interval is (x - 3/NSTEPS, x + 3/NSTEPS]
@@ -130,8 +139,8 @@ impl Approx {
                 let res = self.peak_find(x1, x2);
                 // println!("errors[{}] = {:?} => {:?}", i, errors[i], res);
                 errors[i] = res;
-                if self.max_error < errors[i].1 {
-                    self.max_error = errors[i].1;
+                if self.max_error.1 < errors[i].1 {
+                    self.max_error = errors[i];
                 }
             }
         }
@@ -150,7 +159,7 @@ impl Default for Approx {
             c1: 0x5f1ffff9u32,
             c2: 0.703952253f32,
             c3: 2.38924456f32,
-            max_error: std::f32::MAX,
+            max_error: (0f32, std::f32::MAX),
             rms_error: std::f32::MAX,
         };
         a.search_interval();
@@ -160,7 +169,7 @@ impl Default for Approx {
 
 impl PartialOrd for Approx {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.max_error.partial_cmp(&other.max_error)
+        self.max_error.1.partial_cmp(&other.max_error.1)
     }
 }
 
@@ -176,8 +185,8 @@ impl Display for Approx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "max={:.10} rms={:e} y.u = 0x{:x} - (y.u >> 1); {:.9}f * y.f * ({:1.9}f - x * y.f * y.f)",
-            self.max_error, self.rms_error, self.c1, self.c2, self.c3
+            "max={:.10}@{} rms={:e} y.u = 0x{:x} - (y.u >> 1); {:.9} * y.f * ({:1.9} - x * y.f * y.f)",
+            self.max_error.1, self.max_error.0, self.rms_error, self.c1, self.c2, self.c3
         )
     }
 }
@@ -198,9 +207,9 @@ impl Population {
     }
     fn evolve(&mut self, nt: u32) {
         for t in 0..nt {
-            self.approx[25..].par_iter_mut().for_each(|c| c.step(t, nt));
+            self.approx[100..].par_iter_mut().for_each(|c| c.step(t, nt));
             self.approx.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            let nkeep = 50;
+            let nkeep = 100;
             for i in nkeep..self.approx.len()/2 {
                 self.approx[i].c1 = self.approx[i % nkeep].c1;
                 self.approx[i].c2 = self.approx[i % nkeep].c2;
@@ -214,12 +223,11 @@ impl Population {
 }
 
 fn main() {
-    let mut p = Population::with_capacity(1000);
+    let mut p = Population::with_capacity(10000);
     let mut approx_start = p.approx[0].clone();
     approx_start.search_interval();
     let start = Instant::now();
-    p.evolve(100000);
-    println!("start: {} {}\nend:   {} {}", approx_start.max_error, approx_start,
-        p.approx[0].max_error, p.approx[0]);
+    p.evolve(1000000);
+    println!("start: {}\nend:   {}", approx_start, p.approx[0]);
     println!("{:?} elapsed", Instant::now() - start);
 }
