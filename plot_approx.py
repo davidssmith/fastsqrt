@@ -36,10 +36,14 @@ class Approx:
 
     def plot(self):
         x = np.linspace(1.0, 4.0, num=512)
+        # c3 = np.linspace(1, 6, num=512)
+        # c2 = np.linspace(0.2, 1.0, num=512)
         x = np.append(x, self.xmax)
         x.sort()
         y = [self.eval(xx) for xx in x]
-        plt.plot(x, y, '-', self.xmax, self.eval(self.xmax), 'o', label=self.name)
+        plt.plot(x, y, '-', label=self.name)
+        plt.annotate('{}'.format(self.eval(self.xmax)),
+            (self.xmax, self.eval(self.xmax)), color=plt.gca().lines[-1].get_color())
 
 def main():
    quake_orig = Approx('quake_orig', 0x5f3759df, 0.5, 3.0, 1)
@@ -55,7 +59,7 @@ def main():
    rr_best.plot()
    my_best1.plot()
    my_best2.plot()
-   # plt.grid()
+   plt.grid()
    plt.legend(loc='lower right', ncol=1, frameon=False)
    plt.show()
 
