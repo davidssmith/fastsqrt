@@ -35,34 +35,41 @@ impl Approx {
         // a.c1 = a.rng.gen_range(0x5f000000..0x5fb00000);
         // a.c2 = a.rng.gen();
         // a.c3 = a.rng.gen();
-        println!("{:x}, {}, {}", a.c1, a.c2, a.c3);
         a.search_interval();
         a
+    }
+    pub fn coefs(&self) -> (u32, f32, f32) {
+        (self.c1, self.c2, self.c3)
     }
     fn mutate(&mut self, _t: u32, _nt: u32) {
         let r: f32 = self.rng.gen();
         let val: f32 = self.rng.sample(StandardNormal);
         if r < 0.2 {
             //self.c1 = (self.c1 as i32 + (self.c1 as f32 * val * 0.001f32) as i32) as u32;
-            let w = 20;
-            self.c1 += self.rng.gen_range(0..w) - w/2;
+            let w = 10;
+            self.c1 = self.c1.saturating_sub(self.rng.gen_range(0..w) - w/2);
         } else if r < 0.4 {
             self.c2 *= 1f32 + val * 0.01f32;
         } else if r < 0.6 {
             self.c3 *= 1f32 + val * 0.01f32;
         } else if r < 0.7 {
-            self.c1 = self.rng.gen_range(0x5f000000..0x5fb00000);
+            self.c1 = self.rng.gen_range(0x59400000..0x5f400000);
         } else if r < 0.8 {
             self.c2 *= 1f32 + val * 0.5f32;
         } else if r < 0.9 {
             self.c3 *= 1f32 + val * 0.5f32;
         } else {
-            self.c1 = self.rng.gen_range(0x5f000000..0x5fb00000);
+            self.c1 = self.rng.gen_range(0x59400000..0x5f400000);
             self.c2 *= 1f32 + val * 0.5f32;
             let val: f32 = self.rng.sample(StandardNormal);
             self.c3 *= 1f32 + val * 0.5f32;
         }
         // println!("{} {:?} -> ({},{},{})", r,    old_approx, self.c1, self.c2, self.c3);
+    }
+    pub fn from_sex(&mut self, coefs1: (u32, f32, f32), coefs2: (u32, f32, f32)) {
+        self.c1 = if self.rng.gen_bool(0.5) { coefs1.0 } else { coefs2.0 };
+        self.c2 = if self.rng.gen_bool(0.5) { coefs1.1 } else { coefs2.1 };
+        self.c3 = if self.rng.gen_bool(0.5) { coefs1.2 } else { coefs2.2 };
     }
     fn inv_sqrt(&self, x: f32) -> f32 {
         let mut y = FloatInt { f: x };
