@@ -65,6 +65,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "drawille"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81e127c19c76f5610bb32f6a5f5d1ce5a5374fedba554f05cf5599e3041cd634"
+
+[[package]]
 name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -94,10 +100,21 @@ dependencies = [
 name = "isqrt"
 version = "0.1.0"
 dependencies = [
+ "itertools",
  "rand",
  "rand_distr",
  "rand_pcg",
  "rayon",
+ "textplots",
+]
+
+[[package]]
+name = "itertools"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37d572918e350e82412fe766d24b15e6682fb2ed2bbe018280caa810397cb319"
+dependencies = [
+ "either",
 ]
 
 [[package]]
@@ -242,6 +259,15 @@ name = "scopeguard"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
+
+[[package]]
+name = "textplots"
+version = "0.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "368535e8fa80f6f07725dd0b7a756792db7758786881665a7951f436b92d5141"
+dependencies = [
+ "drawille",
+]
 
 [[package]]
 name = "wasi"

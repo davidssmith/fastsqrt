@@ -47,11 +47,14 @@ impl Approx {
         let mut rng = Pcg64::seed_from_u64(seed);
         // 0x5f601800, 0.2485, 4.7832
         //c1: 0x5f601800, c2: 0.2485, c3: 4.7832,
-        //let c1 = rng.gen_range(0x59400000..0x5f400000);
-        //let c2: f32 = rng.gen();
-        //let c3: f32 = 3.0 * rng.gen::<f32>() + 2.0;
+        // let c1 = rng.gen_range(0x59400000..0x5f400000);
+        // let c2: f32 = rng.gen();
+        // let c3: f32 = 3.0 * rng.gen::<f32>() + 2.0;
         let c1 = 0x5f5f9f17;
+        // let c1 = 0x5f21b30b;
         let c2 = 0.250249714;
+        // let c2 = 0.685413182;
+        // let c3 = 2.432130098;
         let c3 = 4.761075497;
         let mut a = Approx {
             rng,
@@ -68,16 +71,19 @@ impl Approx {
     fn mutate(&mut self, _t: u32, _nt: u32) {
         let r: f32 = self.rng.gen();
         let val: f32 = self.rng.sample(StandardNormal);
-        if r < 0.3 {
-            //self.c1 = (self.c1 as i32 + (self.c1 as f32 * val * 0.001f32) as i32) as u32;
-            let w = 0xc00000;
-            self.c1 = self.c1.saturating_add(self.rng.gen_range(0..w) - w/2);
-        } else if r < 0.6 {
-            self.c2 *= 1f32 + val * 0.1f32;
-        } else if r < 0.9 {
-            self.c3 *= 1f32 + val * 0.1f32;
+        if r < 0.25 {
+            self.c1 = (self.c1 as i32 + (self.c1 as f32 * val * 0.01f32) as i32) as u32;
+            // let w = 0xc000;
+            // self.c1 = self.c1.saturating_add(self.rng.gen_range(0..w) - w/2);
+            self.c1 = self.c1.max(0x5f000000).min(0x5f600000);
+        } else if r < 0.5 {
+            self.c2 *= 1f32 + val;
+            self.c2 = self.c2.max(2f32).min(5f32);
+        } else if r < 0.75 {
+            self.c3 *= 1f32 + val;
+            self.c3 = self.c3.max(0f32).min(1f32);
         } else {
-            self.c1 = self.rng.gen_range(0x59400000..0x5f400000);
+            self.c1 = self.rng.gen_range(0x5f000000..0x5f600000);
             self.c2 *= 1f32 + val * 0.1f32;
             let val: f32 = self.rng.sample(StandardNormal);
             self.c3 *= 1f32 + val * 0.1f32;
@@ -114,37 +120,37 @@ impl Approx {
         (xhat, yhat)
     }
     /// Find the peak of the function `error` within the interval `(a, b)`
-    fn peak_find_c23(&mut self, c2: [f32; 2], c3: [f32; 2]) -> (f32, f32) {
-        let mut l = a;
-        let mut r = b;
-        loop {
-            let m = 0.5*(r + l); // bisect interval
-            // we know that grad(a) > 0 and grad(b) < 0, so all that matters is grad at midpoint
-            let grad_mid = self.derror_dc23(m);
-            // println!("[{}, {}] grad_mid={}", l, r, grad_mid);
-            if r - l < 2f32 * f32::EPSILON || grad_mid == 0.0 { // FOUND IT! TODO: lower thresh?
-                break;
-            } else if grad_mid < 0.0 { // maximum is to the left
-                r = m;
-            } else if grad_mid > 0.0 { // maximum is to the right
-                l = m;
-            } else {
-                panic!("How'd we get here?");
-            }
-        }
-        let xhat = 0.5*(l + r);
-        let yhat = inv_sqrt_error(xhat, self.c1, self.c2, self.c3);
-        (xhat, yhat)
-    }
-    /// estimate the gradient w.r.t. `c2` and `c3` of `error` at location `x`
-    fn derror_dc23(&mut self, x: f32) -> f32 {
-        let c2_1 = self.c2 - 100f32 * f32::EPSILON;
-        let c2_2 = self.c2 + 100f32 * f32::EPSILON;
-        let y1 = inv_sqrt_error(x, self.c1, c2_1, self.c3);
-        let y2 = inv_sqrt_error(x, self.c1, c2_2, self.c3);
-        let dx = 200f32 * f32::EPSILON;
-        (y2 - y1) / dx
-    }
+    // fn peak_find_c23(&mut self, c2: [f32; 2], c3: [f32; 2]) -> (f32, f32) {
+    //     let mut l = a;
+    //     let mut r = b;
+    //     loop {
+    //         let m = 0.5*(r + l); // bisect interval
+    //         // we know that grad(a) > 0 and grad(b) < 0, so all that matters is grad at midpoint
+    //         let grad_mid = self.derror_dc23(m);
+    //         // println!("[{}, {}] grad_mid={}", l, r, grad_mid);
+    //         if r - l < 2f32 * f32::EPSILON || grad_mid == 0.0 { // FOUND IT! TODO: lower thresh?
+    //             break;
+    //         } else if grad_mid < 0.0 { // maximum is to the left
+    //             r = m;
+    //         } else if grad_mid > 0.0 { // maximum is to the right
+    //             l = m;
+    //         } else {
+    //             panic!("How'd we get here?");
+    //         }
+    //     }
+    //     let xhat = 0.5*(l + r);
+    //     let yhat = inv_sqrt_error(xhat, self.c1, self.c2, self.c3);
+    //     (xhat, yhat)
+    // }
+    // /// estimate the gradient w.r.t. `c2` and `c3` of `error` at location `x`
+    // fn derror_dc23(&mut self, x: f32) -> f32 {
+    //     let c2_1 = self.c2 - 100f32 * f32::EPSILON;
+    //     let c2_2 = self.c2 + 100f32 * f32::EPSILON;
+    //     let y1 = inv_sqrt_error(x, self.c1, c2_1, self.c3);
+    //     let y2 = inv_sqrt_error(x, self.c1, c2_2, self.c3);
+    //     let dx = 200f32 * f32::EPSILON;
+    //     (y2 - y1) / dx
+    // }
     /// estimate the gradient w.r.t. `x` of `error` at location `x`
     fn derror_dx(&mut self, x: f32) -> f32 {
         let x1 = x - f32::EPSILON;
@@ -228,7 +234,7 @@ impl Display for Approx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "max={:.10} @ {}  rms={:e}  y.u=0x{:x}-(y.u>>1); {:.9}*y.f*({:1.9}-x*y.f*y.f)",
+            "max={:.10} @ x={}  rms={:e}  y.u=0x{:x}-(y.u>>1); {:.9}*y.f*({:1.9}-x*y.f*y.f)",
             self.max_error.1, self.max_error.0, self.rms_error, self.c1, self.c2, self.c3
         )
     }
