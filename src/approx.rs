@@ -11,6 +11,26 @@ union FloatInt {
     f: f32,
 }
 
+fn inv_sqrt(x: f32, c1: u32, c2: f32, c3: f32) -> f32 {
+    let mut y = FloatInt { f: x };
+    // self.c1 = (3/2) x 2^23 x (127 - mu) = 0x5f400000 - 0xc00000*mu,
+    // where log(1+x) ~= x + mu
+    y.u = unsafe { c1 - (y.u >> 1) };
+    // self.c2, self.c3 come from Newton-Raphson iteration
+    return c2 * unsafe { y.f * (c3 - x * y.f * y.f) };
+}
+fn inv_sqrt_error(x: f32, c1: u32, c2: f32, c3: f32) -> f32 {
+    assert!(x >= 0.0f32);
+    assert!(x <= 4.0f32);
+    let y_approx = inv_sqrt(x, c1, c2, c3);
+    let y_true = 1.0f32 / x.sqrt();
+    let e = (y_approx - y_true).abs() / y_true;
+    if e.is_nan() {
+        100f32
+    } else {
+        e
+    }
+}
 
 #[derive(Clone)]
 pub struct Approx {
@@ -24,74 +44,60 @@ pub struct Approx {
 
 impl Approx {
     pub fn from_seed(seed: u64) -> Self {
+        let mut rng = Pcg64::seed_from_u64(seed);
+        // 0x5f601800, 0.2485, 4.7832
+        //c1: 0x5f601800, c2: 0.2485, c3: 4.7832,
+        //let c1 = rng.gen_range(0x59400000..0x5f400000);
+        //let c2: f32 = rng.gen();
+        //let c3: f32 = 3.0 * rng.gen::<f32>() + 2.0;
+        let c1 = 0x5f5f9f17;
+        let c2 = 0.250249714;
+        let c3 = 4.761075497;
         let mut a = Approx {
-            rng: Pcg64::seed_from_u64(seed),
-            // 0x5f601800, 0.2485, 4.7832
-            c1: 0x5f1ffff9u32, c2: 0.703952253, c3: 2.38924456,
-            //c1: 0x5f601800, c2: 0.2485, c3: 4.7832,
+            rng,
+            c1, c2, c3,
             max_error: (0f32, std::f32::NAN),
             rms_error: std::f32::NAN,
         };
-        // a.c1 = a.rng.gen_range(0x5f000000..0x5fb00000);
-        // a.c2 = a.rng.gen();
-        // a.c3 = a.rng.gen();
         a.search_interval();
         a
     }
-    pub fn coefs(&self) -> (u32, f32, f32) {
-        (self.c1, self.c2, self.c3)
-    }
+    // pub fn coefs(&self) -> (u32, f32, f32) {
+    //     (self.c1, self.c2, self.c3)
+    // }
     fn mutate(&mut self, _t: u32, _nt: u32) {
         let r: f32 = self.rng.gen();
         let val: f32 = self.rng.sample(StandardNormal);
-        if r < 0.2 {
+        if r < 0.3 {
             //self.c1 = (self.c1 as i32 + (self.c1 as f32 * val * 0.001f32) as i32) as u32;
-            let w = 10;
-            self.c1 = self.c1.saturating_sub(self.rng.gen_range(0..w) - w/2);
-        } else if r < 0.4 {
-            self.c2 *= 1f32 + val * 0.01f32;
+            let w = 0xc00000;
+            self.c1 = self.c1.saturating_add(self.rng.gen_range(0..w) - w/2);
         } else if r < 0.6 {
-            self.c3 *= 1f32 + val * 0.01f32;
-        } else if r < 0.7 {
-            self.c1 = self.rng.gen_range(0x59400000..0x5f400000);
-        } else if r < 0.8 {
-            self.c2 *= 1f32 + val * 0.5f32;
+            self.c2 *= 1f32 + val * 0.1f32;
         } else if r < 0.9 {
-            self.c3 *= 1f32 + val * 0.5f32;
+            self.c3 *= 1f32 + val * 0.1f32;
         } else {
             self.c1 = self.rng.gen_range(0x59400000..0x5f400000);
-            self.c2 *= 1f32 + val * 0.5f32;
+            self.c2 *= 1f32 + val * 0.1f32;
             let val: f32 = self.rng.sample(StandardNormal);
-            self.c3 *= 1f32 + val * 0.5f32;
+            self.c3 *= 1f32 + val * 0.1f32;
         }
         // println!("{} {:?} -> ({},{},{})", r,    old_approx, self.c1, self.c2, self.c3);
     }
-    pub fn from_sex(&mut self, coefs1: (u32, f32, f32), coefs2: (u32, f32, f32)) {
-        self.c1 = if self.rng.gen_bool(0.5) { coefs1.0 } else { coefs2.0 };
-        self.c2 = if self.rng.gen_bool(0.5) { coefs1.1 } else { coefs2.1 };
-        self.c3 = if self.rng.gen_bool(0.5) { coefs1.2 } else { coefs2.2 };
-    }
-    fn inv_sqrt(&self, x: f32) -> f32 {
-        let mut y = FloatInt { f: x };
-        // self.c1 = (3/2) x 2^23 x (127 - mu) = 0x5f400000 - 0xc00000*mu,
-        // where log(1+x) ~= x + mu
-        y.u = unsafe { self.c1 - (y.u >> 1) };
-        // self.c2, self.c3 come from Newton-Raphson iteration
-        return self.c2 * unsafe { y.f * (self.c3 - x * y.f * y.f) };
-    }
-    fn error(&mut self, x: f32) -> f32 {
-        let y_approx = self.inv_sqrt(x);
-        let y_true = 1.0f32 / x.sqrt();
-        (y_approx - y_true).abs() / y_true
-    }
+    // pub fn from_sex(&mut self, coefs1: (u32, f32, f32), coefs2: (u32, f32, f32)) {
+    //     self.c1 = if self.rng.gen_bool(0.5) { coefs1.0 } else { coefs2.0 };
+    //     self.c2 = if self.rng.gen_bool(0.5) { coefs1.1 } else { coefs2.1 };
+    //     self.c3 = if self.rng.gen_bool(0.5) { coefs1.2 } else { coefs2.2 };
+    // }
+
     /// Find the peak of the function `error` within the interval `(a, b)`
-    fn peak_find(&mut self, a: f32, b: f32) -> (f32, f32) {
+    fn peak_find_x(&mut self, a: f32, b: f32) -> (f32, f32) {
         let mut l = a;
         let mut r = b;
         loop {
             let m = 0.5*(r + l); // bisect interval
             // we know that grad(a) > 0 and grad(b) < 0, so all that matters is grad at midpoint
-            let grad_mid = self.error_gradient(m);
+            let grad_mid = self.derror_dx(m);
             // println!("[{}, {}] grad_mid={}", l, r, grad_mid);
             if r - l < 2f32 * f32::EPSILON || grad_mid == 0.0 { // FOUND IT! TODO: lower thresh?
                 break;
@@ -104,26 +110,62 @@ impl Approx {
             }
         }
         let xhat = 0.5*(l + r);
-        let yhat = self.error(xhat);
+        let yhat = inv_sqrt_error(xhat, self.c1, self.c2, self.c3);
         (xhat, yhat)
     }
-    /// estimate the gradient of `error` at location `x`
-    fn error_gradient(&mut self, x: f32) -> f32 {
+    /// Find the peak of the function `error` within the interval `(a, b)`
+    fn peak_find_c23(&mut self, c2: [f32; 2], c3: [f32; 2]) -> (f32, f32) {
+        let mut l = a;
+        let mut r = b;
+        loop {
+            let m = 0.5*(r + l); // bisect interval
+            // we know that grad(a) > 0 and grad(b) < 0, so all that matters is grad at midpoint
+            let grad_mid = self.derror_dc23(m);
+            // println!("[{}, {}] grad_mid={}", l, r, grad_mid);
+            if r - l < 2f32 * f32::EPSILON || grad_mid == 0.0 { // FOUND IT! TODO: lower thresh?
+                break;
+            } else if grad_mid < 0.0 { // maximum is to the left
+                r = m;
+            } else if grad_mid > 0.0 { // maximum is to the right
+                l = m;
+            } else {
+                panic!("How'd we get here?");
+            }
+        }
+        let xhat = 0.5*(l + r);
+        let yhat = inv_sqrt_error(xhat, self.c1, self.c2, self.c3);
+        (xhat, yhat)
+    }
+    /// estimate the gradient w.r.t. `c2` and `c3` of `error` at location `x`
+    fn derror_dc23(&mut self, x: f32) -> f32 {
+        let c2_1 = self.c2 - 100f32 * f32::EPSILON;
+        let c2_2 = self.c2 + 100f32 * f32::EPSILON;
+        let y1 = inv_sqrt_error(x, self.c1, c2_1, self.c3);
+        let y2 = inv_sqrt_error(x, self.c1, c2_2, self.c3);
+        let dx = 200f32 * f32::EPSILON;
+        (y2 - y1) / dx
+    }
+    /// estimate the gradient w.r.t. `x` of `error` at location `x`
+    fn derror_dx(&mut self, x: f32) -> f32 {
         let x1 = x - f32::EPSILON;
         let x2 = x + f32::EPSILON;
-        let y1 = self.error(x1);
-        let y2 = self.error(x2);
+        let y1 = inv_sqrt_error(x1, self.c1, self.c2, self.c3);
+        let y2 = inv_sqrt_error(x2, self.c1, self.c2, self.c3);
         let dx = 2f32 * f32::EPSILON;
         (y2 - y1) / dx
     }
+    /// find local optimum of c2 and c3
+    fn optimize_newton_step(&mut self) {
+
+    }
     pub fn search_interval(&mut self) {
-        const NDIV: u32 = 512;
+        const NDIV: u32 = 256;
         let mut errors: Vec<(f32, f32)> = Vec::with_capacity(NDIV as usize);
         self.rms_error = 0.0;
         // coarsely explore interval [1,4)
         for i in 0..NDIV {
             let x = 1f32 + (i as f32) * 3f32 / (NDIV as f32);
-            let error = self.error(x);
+            let error = inv_sqrt_error(x, self.c1, self.c2, self.c3);
             errors.push((x, error));
             self.rms_error += error*error;
         }
@@ -135,9 +177,9 @@ impl Approx {
             // x is center, and interval is (x - 3/NSTEPS, x + 3/NSTEPS]
             let x1 = errors[i].0 - 3.0f32 / (NDIV as f32);
             let x2 = errors[i].0 + 3.0f32 / (NDIV as f32);
-            if self.error_gradient(x1) > 0.0 && self.error_gradient(x2) < 0.0 { // we bracket a peak
+            if self.derror_dx(x1) > 0.0 && self.derror_dx(x2) < 0.0 { // we bracket a peak
                 // now bisect to find the max
-                let res = self.peak_find(x1, x2);
+                let res = self.peak_find_x(x1, x2);
                 // println!("errors[{}] = {:?} => {:?}", i, errors[i], res);
                 errors[i] = res;
                 if self.max_error.1 < errors[i].1 {

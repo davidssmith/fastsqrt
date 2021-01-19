@@ -1,7 +1,6 @@
 
 use std::time::Instant;
 use rayon::prelude::*;
-use itertools::Itertools;
 
 mod approx;
 use approx::Approx;
@@ -26,15 +25,11 @@ impl Population {
             self.approx[nkeep..].par_iter_mut().for_each(|c| c.step(t, nt));
             self.approx.sort_by(|a, b| a.partial_cmp(b).unwrap());
             // fill rest of population with offspring of keepers
-            let mut child = nkeep;
-            for p in (1..nkeep).combinations(2) {
-                let c1 = self.approx[p[0]].coefs();
-                let c2 = self.approx[p[1]].coefs();
-                self.approx[child].from_sex(c1, c2);
-                child += 1;
-                if child >= self.approx.len() {
-                    break;
-                }
+            for child in 2*nkeep..self.approx.len() {
+                let p = child % nkeep;
+                self.approx[child].c1 = self.approx[p].c1;
+                self.approx[child].c2 = self.approx[p].c2;
+                self.approx[child].c3 = self.approx[p].c3;
             }
             if t % (nt / 1000) == 0 {
                 println!("{:6}. {}", t, self.approx[0]);

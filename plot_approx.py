@@ -54,7 +54,7 @@ def main():
    # my_best3 = Approx('my_best3', 0x5f2031e1, 0.698473573, 2.401543140)
 
    plt.figure(1)
-   # quake_orig.plot()
+   quake_orig.plot()
    # rr_lsq.plot()
    rr_best.plot()
    my_best1.plot()
