@@ -47,15 +47,15 @@ impl Approx {
         let mut rng = Pcg64::seed_from_u64(seed);
         // 0x5f601800, 0.2485, 4.7832
         //c1: 0x5f601800, c2: 0.2485, c3: 4.7832,
-        // let c1 = rng.gen_range(0x59400000..0x5f400000);
-        // let c2: f32 = rng.gen();
-        // let c3: f32 = 3.0 * rng.gen::<f32>() + 2.0;
-        let c1 = 0x5f5f9f17;
+        let c1 = rng.gen_range(0x59400000..0x5f400000);
+        let c2: f32 = rng.gen();
+        let c3: f32 = 3.0 * rng.gen::<f32>() + 2.0;
+        // let c1 = 0x5f5f9f17;
+        // let c2 = 0.250249714;
+        // let c3 = 4.761075497;
         // let c1 = 0x5f21b30b;
-        let c2 = 0.250249714;
         // let c2 = 0.685413182;
         // let c3 = 2.432130098;
-        let c3 = 4.761075497;
         let mut a = Approx {
             rng,
             c1, c2, c3,
