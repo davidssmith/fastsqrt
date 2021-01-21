@@ -26,7 +26,7 @@ impl Population {
         let nkeep = (0.05 * self.approx.len() as f32) as usize;
         let mut t = 1;
         loop {
-            self.approx[nkeep..].iter_mut().for_each(|c| c.step(t, nt));
+            self.approx[nkeep..].par_iter_mut().for_each(|c| c.step(t, nt));
             self.approx.sort_by(|a, b| a.partial_cmp(b).unwrap());
             // let tscale: u32 = 100 * t / nt + 1;
             // nkeep = 1 + 99 / tscale as usize;
@@ -39,14 +39,14 @@ impl Population {
                 // }
             // }
             if t % 1000 == 0 {
-                let mut hist = MiniHist::with_range(-5.0, 5.0, 50);
-                for a in self.approx.iter() {
-                    hist.add(a.max_error.1.log(10.0));
-                }
-                let hist = hist.as_tuple_vec();
-                Chart::new(180, 60, -5.0, 5.0)
-                    .lineplot(&Shape::Bars(&hist[..]))
-                    .nice();
+                // let mut hist = MiniHist::with_range(-5.0, 5.0, 50);
+                // for a in self.approx.iter() {
+                //     hist.add(a.max_error.1.log(10.0));
+                // }
+                // let hist = hist.as_tuple_vec();
+                // Chart::new(180, 60, -5.0, 5.0)
+                //     .lineplot(&Shape::Bars(&hist[..]))
+                //     .nice();
                 println!("{:8}. {} (kept {})", t, self.approx[0], nkeep);
             }
             // fill rest of population with offspring of keepers
@@ -62,7 +62,7 @@ impl Population {
 }
 
 fn main() {
-    let mut p = Population::with_capacity(100);
+    let mut p = Population::with_capacity(1000);
     let mut approx_start = p.approx[0].clone();
     approx_start.search_interval();
     let start = Instant::now();
