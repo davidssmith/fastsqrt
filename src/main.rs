@@ -23,10 +23,10 @@ impl Population {
         Population { approx }
     }
     fn evolve(&mut self, nt: u32) {
-        let nkeep = 500;
+        let nkeep = (0.05 * self.approx.len() as f32) as usize;
         let mut t = 1;
         loop {
-            self.approx[nkeep..].par_iter_mut().for_each(|c| c.step(t, nt));
+            self.approx[nkeep..].iter_mut().for_each(|c| c.step(t, nt));
             self.approx.sort_by(|a, b| a.partial_cmp(b).unwrap());
             // let tscale: u32 = 100 * t / nt + 1;
             // nkeep = 1 + 99 / tscale as usize;
@@ -62,7 +62,7 @@ impl Population {
 }
 
 fn main() {
-    let mut p = Population::with_capacity(10000);
+    let mut p = Population::with_capacity(100);
     let mut approx_start = p.approx[0].clone();
     approx_start.search_interval();
     let start = Instant::now();

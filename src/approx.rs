@@ -79,15 +79,11 @@ impl Approx {
         } else if r < 0.5 {
             self.c2 *= 1f32 + val;
             self.c2 = self.c2.max(2f32).min(5f32);
-        } else if r < 0.75 {
-            self.c3 *= 1f32 + val;
-            self.c3 = self.c3.max(0f32).min(1f32);
         } else {
             self.c1 = self.rng.gen_range(0x5f000000..0x5f600000);
             self.c2 *= 1f32 + val * 0.1f32;
-            let val: f32 = self.rng.sample(StandardNormal);
-            self.c3 *= 1f32 + val * 0.1f32;
         }
+        self.optimize_c3();
         // println!("{} {:?} -> ({},{},{})", r,    old_approx, self.c1, self.c2, self.c3);
     }
     // pub fn from_sex(&mut self, coefs1: (u32, f32, f32), coefs2: (u32, f32, f32)) {
@@ -119,38 +115,38 @@ impl Approx {
         let yhat = inv_sqrt_error(xhat, self.c1, self.c2, self.c3);
         (xhat, yhat)
     }
-    /// Find the peak of the function `error` within the interval `(a, b)`
-    // fn peak_find_c23(&mut self, c2: [f32; 2], c3: [f32; 2]) -> (f32, f32) {
-    //     let mut l = a;
-    //     let mut r = b;
-    //     loop {
-    //         let m = 0.5*(r + l); // bisect interval
-    //         // we know that grad(a) > 0 and grad(b) < 0, so all that matters is grad at midpoint
-    //         let grad_mid = self.derror_dc23(m);
-    //         // println!("[{}, {}] grad_mid={}", l, r, grad_mid);
-    //         if r - l < 2f32 * f32::EPSILON || grad_mid == 0.0 { // FOUND IT! TODO: lower thresh?
-    //             break;
-    //         } else if grad_mid < 0.0 { // maximum is to the left
-    //             r = m;
-    //         } else if grad_mid > 0.0 { // maximum is to the right
-    //             l = m;
-    //         } else {
-    //             panic!("How'd we get here?");
-    //         }
-    //     }
-    //     let xhat = 0.5*(l + r);
-    //     let yhat = inv_sqrt_error(xhat, self.c1, self.c2, self.c3);
-    //     (xhat, yhat)
-    // }
-    // /// estimate the gradient w.r.t. `c2` and `c3` of `error` at location `x`
-    // fn derror_dc23(&mut self, x: f32) -> f32 {
-    //     let c2_1 = self.c2 - 100f32 * f32::EPSILON;
-    //     let c2_2 = self.c2 + 100f32 * f32::EPSILON;
-    //     let y1 = inv_sqrt_error(x, self.c1, c2_1, self.c3);
-    //     let y2 = inv_sqrt_error(x, self.c1, c2_2, self.c3);
-    //     let dx = 200f32 * f32::EPSILON;
-    //     (y2 - y1) / dx
-    // }
+    /// Find the best value of c3 for the given c1 and c2
+    /// 
+    fn optimize_c3(&mut self) {
+        let mut l = 2.0;
+        let mut r = 5.0;
+        loop {
+            let m = 0.5*(r + l); // bisect interval
+            // we know that grad(a) > 0 and grad(b) < 0, so all that matters is grad at midpoint
+            let grad_mid = self.derror_dc3(m);
+            // println!("[{}, {}] grad_mid={}", l, r, grad_mid);
+            if r - l < 2f32 * f32::EPSILON || grad_mid == 0.0 { // FOUND IT! TODO: lower thresh?
+                break;
+            } else if grad_mid > 0.0 { // minimum is to the left
+                r = m;
+            } else if grad_mid < 0.0 { // minimum is to the right
+                l = m;
+            } else {
+                panic!("How'd we get here?");
+            }
+        }
+        self.c3 = 0.5*(l + r);
+    }
+    /// estimate the gradient w.r.t. `c2` and `c3` of `error` at location `x`
+    fn derror_dc3(&mut self, c3: f32) -> f32 {
+        let c3_1 = c3 - 100f32 * f32::EPSILON;
+        let c3_2 = c3 + 100f32 * f32::EPSILON;
+        let x = 2.5f32;
+        let y1 = inv_sqrt_error(x, self.c1, self.c2, c3_1);
+        let y2 = inv_sqrt_error(x, self.c1, self.c2, c3_2);
+        let dx = 200f32 * f32::EPSILON;
+        (y2 - y1) / dx
+    }
     /// estimate the gradient w.r.t. `x` of `error` at location `x`
     fn derror_dx(&mut self, x: f32) -> f32 {
         let x1 = x - f32::EPSILON;
