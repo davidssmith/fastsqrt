@@ -3,6 +3,7 @@ use std::fmt::{self, Display};
 use rand::{thread_rng, Rng, SeedableRng};
 use rand_distr::StandardNormal;
 use rand_pcg::Pcg64;
+use num::clamp;
 
 
 #[repr(C)]
@@ -15,13 +16,15 @@ fn inv_sqrt(x: f32, c1: u32, c2: f32, c3: f32) -> f32 {
     let mut y = FloatInt { f: x };
     // self.c1 = (3/2) x 2^23 x (127 - mu) = 0x5f400000 - 0xc00000*mu,
     // where log(1+x) ~= x + mu
+    // SAFETY: y is local and not borrowed
     y.u = unsafe { c1 - (y.u >> 1) };
     // self.c2, self.c3 come from Newton-Raphson iteration
+    // SAFETY: y is local and not borrowed
     return c2 * unsafe { y.f * (c3 - x * y.f * y.f) };
 }
 fn inv_sqrt_error(x: f32, c1: u32, c2: f32, c3: f32) -> f32 {
-    assert!(x >= 0.0f32);
-    assert!(x <= 4.0f32);
+    //assert!(x >= 0.0f32);
+    //assert!(x <= 4.0f32);
     let y_approx = inv_sqrt(x, c1, c2, c3);
     let y_true = 1.0f32 / x.sqrt();
     let e = (y_approx - y_true).abs() / y_true;
@@ -50,12 +53,16 @@ impl Approx {
         let c1 = rng.gen_range(0x59400000..0x5f400000);
         let c2: f32 = rng.gen();
         let c3: f32 = 3.0 * rng.gen::<f32>() + 2.0;
-        // let c1 = 0x5f5f9f17;
-        // let c2 = 0.250249714;
-        // let c3 = 4.761075497;
-        // let c1 = 0x5f21b30b;
-        // let c2 = 0.685413182;
-        // let c3 = 2.432130098;
+        //let c1 = 0x5f5f9f17;
+        //let c2 = 0.250249714;
+        //let c3 = 4.761075497;
+        // Kadlec's:
+        //let c1 = 0x5F1FFFF9;
+        //let c2 = 0.703952253;
+        //let c3 = 2.38924456;
+        //let c1 = 0x5f21b30b;
+        //let c2 = 0.685413182;
+        //let c3 = 2.432130098;
         let mut a = Approx {
             rng,
             c1, c2, c3,
@@ -71,18 +78,21 @@ impl Approx {
     fn mutate(&mut self, _t: u32, _nt: u32) {
         let r: f32 = self.rng.gen();
         let val: f32 = self.rng.sample(StandardNormal);
-        if r < 0.25 {
+        if r < 0.3 {
             self.c1 = (self.c1 as i32 + (self.c1 as f32 * val * 0.01f32) as i32) as u32;
             // let w = 0xc000;
             // self.c1 = self.c1.saturating_add(self.rng.gen_range(0..w) - w/2);
-            self.c1 = self.c1.max(0x5f000000).min(0x5f600000);
-        } else if r < 0.5 {
+            //self.c1 = self.c1.max(0x5f000000).min(0x5f600000);
+        } else if r < 0.6 {
             self.c2 *= 1f32 + val;
-            self.c2 = self.c2.max(2f32).min(5f32);
-        } else if r < 0.75 {
+            self.c2 = clamp(self.c2, 2.0, 5.0);
+        } else if r < 0.9 {
             self.c3 *= 1f32 + val;
-            self.c3 = self.c3.max(0f32).min(1f32);
+            self.c3 = clamp(self.c3, 0.0, 1.0);
         } else {
+            //self.c1 = self.rng.gen_range(0x59400000..0x5f400000);
+            //self.c2 = self.rng.gen();
+            //self.c3 = 3.0 * self.rng.gen::<f32>() + 2.0;
             self.c1 = self.rng.gen_range(0x5f000000..0x5f600000);
             self.c2 *= 1f32 + val * 0.1f32;
             let val: f32 = self.rng.sample(StandardNormal);
@@ -97,7 +107,7 @@ impl Approx {
     // }
 
     /// Find the peak of the function `error` within the interval `(a, b)`
-    fn peak_find_x(&mut self, a: f32, b: f32) -> (f32, f32) {
+    fn peak_find_x(&self, a: f32, b: f32) -> (f32, f32) {
         let mut l = a;
         let mut r = b;
         loop {
@@ -152,7 +162,7 @@ impl Approx {
     //     (y2 - y1) / dx
     // }
     /// estimate the gradient w.r.t. `x` of `error` at location `x`
-    fn derror_dx(&mut self, x: f32) -> f32 {
+    fn derror_dx(&self, x: f32) -> f32 {
         let x1 = x - f32::EPSILON;
         let x2 = x + f32::EPSILON;
         let y1 = inv_sqrt_error(x1, self.c1, self.c2, self.c3);
@@ -161,11 +171,11 @@ impl Approx {
         (y2 - y1) / dx
     }
     /// find local optimum of c2 and c3
-    fn optimize_newton_step(&mut self) {
-
-    }
+    //fn optimize_newton_step(&mut self) {
+    //    unimplemented!()
+   // }
     pub fn search_interval(&mut self) {
-        const NDIV: u32 = 256;
+        const NDIV: u32 = 512;
         let mut errors: Vec<(f32, f32)> = Vec::with_capacity(NDIV as usize);
         self.rms_error = 0.0;
         // coarsely explore interval [1,4)
@@ -218,7 +228,11 @@ impl Default for Approx {
 
 impl PartialOrd for Approx {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.max_error.1.partial_cmp(&other.max_error.1)
+        let me = (self.rms_error, self.max_error.1);
+        let them = (other.rms_error, other.max_error.1);
+        //self.max_error.1.partial_cmp(&other.max_error.1)
+        //self.rms_error.partial_cmp(&other.rms_error)
+        me.partial_cmp(&them)
     }
 }
 
@@ -234,7 +248,7 @@ impl Display for Approx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "max={:.10} @ x={}  rms={:e}  y.u=0x{:x}-(y.u>>1); {:.9}*y.f*({:1.9}-x*y.f*y.f)",
+            "{:.10},{},{:e},{:x},{:.9},{:1.9}",
             self.max_error.1, self.max_error.0, self.rms_error, self.c1, self.c2, self.c3
         )
     }

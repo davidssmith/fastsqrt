@@ -1,12 +1,12 @@
 
 use std::time::Instant;
-use textplots::{utils, Chart, Plot, Shape};
+//use textplots::{utils, Chart, Plot, Shape};
 use rayon::prelude::*;
 
 mod approx;
 use approx::Approx;
-mod minihist;
-use minihist::MiniHist;
+//mod minihist;
+//use minihist::MiniHist;
 
 struct Population {
     approx: Vec<Approx>,
@@ -23,8 +23,11 @@ impl Population {
         Population { approx }
     }
     fn evolve(&mut self, nt: u32) {
-        let nkeep = 500;
+        let nkeep = 100;
         let mut t = 1;
+        println!("gen,max,maxloc,rms,c1,c2,c3,nkeep,tper");
+        println!("{},{},{},", t, self.approx[0], nkeep);
+        let start = Instant::now();
         loop {
             self.approx[nkeep..].par_iter_mut().for_each(|c| c.step(t, nt));
             self.approx.sort_by(|a, b| a.partial_cmp(b).unwrap());
@@ -39,15 +42,16 @@ impl Population {
                 // }
             // }
             if t % 1000 == 0 {
-                let mut hist = MiniHist::with_range(-5.0, 5.0, 50);
-                for a in self.approx.iter() {
-                    hist.add(a.max_error.1.log(10.0));
-                }
-                let hist = hist.as_tuple_vec();
-                Chart::new(180, 60, -5.0, 5.0)
-                    .lineplot(&Shape::Bars(&hist[..]))
-                    .nice();
-                println!("{:8}. {} (kept {})", t, self.approx[0], nkeep);
+                //let mut hist = MiniHist::with_range(-5.0, 3.0, 64);
+                //for a in self.approx.iter() {
+                //    hist.add(a.max_error.1.log(10.0));
+                //}
+                //let hist = hist.as_tuple_vec();
+                //Chart::new(180, 60, -5.0, 3.0)
+                //    .lineplot(&Shape::Bars(&hist[..]))
+                //    .nice();
+                let tper = start.elapsed().as_nanos() / (t as u128) / (self.approx.len() as u128);
+                println!("{},{},{},{}s", t, self.approx[0], nkeep, tper);
             }
             // fill rest of population with offspring of keepers
             for child in 2*nkeep..self.approx.len() {
@@ -65,7 +69,6 @@ fn main() {
     let mut p = Population::with_capacity(10000);
     let mut approx_start = p.approx[0].clone();
     approx_start.search_interval();
-    let start = Instant::now();
     // println!(
     //     "{}",
     //     plot(
@@ -83,5 +86,4 @@ fn main() {
     // );
     p.evolve(100_000_000);
     println!("start: {}\nend:   {}", approx_start, p.approx[0]);
-    println!("{:?} elapsed", Instant::now() - start);
 }

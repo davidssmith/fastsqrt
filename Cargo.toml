@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 itertools = "*"
+num = "*"
 rand = "*"
 rand_distr = "*"
 rand_pcg = "0.3.0"
