@@ -1,9 +1,9 @@
-use std::cmp::Ordering;
-use std::fmt::{self, Display};
+use num::clamp;
 use rand::{thread_rng, Rng, SeedableRng};
 use rand_distr::StandardNormal;
 use rand_pcg::Pcg64;
-use num::clamp;
+use std::fmt::{self, Display};
+use textplots::{utils, Chart, Plot, Shape};
 
 
 #[repr(C)]
@@ -43,7 +43,7 @@ pub struct Approx {
     pub c3: f32,
     pub max_error: f32,
     /// x position where max error occurs
-    pub max_error_loc: f32,  
+    pub max_error_loc: f32,
     pub rms_error: f32,
 }
 
@@ -71,7 +71,9 @@ impl Approx {
         };
         let mut a = Approx {
             rng,
-            c1, c2, c3,
+            c1,
+            c2,
+            c3,
             max_error: std::f32::NAN,
             max_error_loc: 0.0,
             rms_error: std::f32::NAN,
@@ -79,9 +81,6 @@ impl Approx {
         a.search_interval();
         a
     }
-    // pub fn coefs(&self) -> (u32, f32, f32) {
-    //     (self.c1, self.c2, self.c3)
-    // }
     fn mutate(&mut self, _t: u32, _nt: u32) {
         let r: f32 = self.rng.gen();
         let val: f32 = self.rng.sample(StandardNormal);
@@ -112,29 +111,58 @@ impl Approx {
     //     self.c2 = if self.rng.gen_bool(0.5) { coefs1.1 } else { coefs2.1 };
     //     self.c3 = if self.rng.gen_bool(0.5) { coefs1.2 } else { coefs2.2 };
     // }
-
+	/// estimate the gradient w.r.t. `x` of `error` at location `x`. Note that this isn't scaled
+	/// by dx because we don't care about the scale, just the sign.
+    fn error_slope(&self, x: f32) -> f32 {
+		const DX: f32 = 1024f32 * f32::EPSILON;
+        let y1 = inv_sqrt_error(x - DX, self.c1, self.c2, self.c3);
+        let y2 = inv_sqrt_error(x + DX, self.c1, self.c2, self.c3);
+        y2 - y1
+    }
     /// Find the peak of the function `error` within the interval `(a, b)`
     fn peak_find_x(&self, a: f32, b: f32) -> (f32, f32) {
         let mut l = a;
         let mut r = b;
+		// let left_error = inv_sqrt_error(a, self.c1, self.c2, self.c3);
+		// let right_error = inv_sqrt_error(b, self.c1, self.c2, self.c3);
         loop {
-            let m = 0.5*(r + l); // bisect interval
-            // we know that grad(a) > 0 and grad(b) < 0, so all that matters is grad at midpoint
-            let grad_mid = self.derror_dx(m);
-            // println!("[{}, {}] grad_mid={}", l, r, grad_mid);
-            if r - l < 2f32 * f32::EPSILON || grad_mid == 0.0 { // FOUND IT! TODO: lower thresh?
+			let mut errors = Vec::new();
+			let mut x = a;
+			let dx = (b - a) * 0.01;
+			loop {
+				errors.push((x, inv_sqrt_error(x, self.c1, self.c2, self.c3)));
+				x += dx;
+				if x >= b {
+					break;
+				}
+			}
+			Chart::new(180, 60, l, r).lineplot(&Shape::Points(&errors)).nice();
+
+			// we know that grad(a) > 0 and grad(b) < 0, so all that matters is grad at midpoint
+        	let m = l + 0.5 * (r - l);
+            let mid_slope = self.error_slope(m);
+			println!("{}...{}...{} {} {}", l, m, r, mid_slope, (r - l) / f32::EPSILON);
+            if r - l <= 2f32 * f32::EPSILON  {
+                // FOUND IT!
                 break;
-            } else if grad_mid < 0.0 { // maximum is to the left
+            } else if mid_slope < 0.0 {
+                // maximum is to the left
                 r = m;
-            } else if grad_mid > 0.0 { // maximum is to the right
+            } else if mid_slope > 0.0 {
+                // maximum is to the right
                 l = m;
             } else {
                 panic!("How'd we get here?");
             }
         }
-        let xhat = 0.5*(l + r);
-        let yhat = inv_sqrt_error(xhat, self.c1, self.c2, self.c3);
-        (xhat, yhat)
+		let left_error = inv_sqrt_error(l, self.c1, self.c2, self.c3);
+		let right_error = inv_sqrt_error(r, self.c1, self.c2, self.c3);
+		if left_error > right_error {
+			(l, left_error)
+		} else {
+			(r, right_error)
+		}
+
     }
     /// Find the peak of the function `error` within the interval `(a, b)`
     // fn peak_find_c23(&mut self, c2: [f32; 2], c3: [f32; 2]) -> (f32, f32) {
@@ -168,43 +196,38 @@ impl Approx {
     //     let dx = 200f32 * f32::EPSILON;
     //     (y2 - y1) / dx
     // }
-    /// estimate the gradient w.r.t. `x` of `error` at location `x`
-    fn derror_dx(&self, x: f32) -> f32 {
-        let x1 = x - f32::EPSILON;
-        let x2 = x + f32::EPSILON;
-        let y1 = inv_sqrt_error(x1, self.c1, self.c2, self.c3);
-        let y2 = inv_sqrt_error(x2, self.c1, self.c2, self.c3);
-        let dx = 2f32 * f32::EPSILON;
-        (y2 - y1) / dx
-    }
-    /// find local optimum of c2 and c3
-    //fn optimize_newton_step(&mut self) {
-    //    unimplemented!()
-   // }
+
     pub fn search_interval(&mut self) {
         const NDIV: u32 = 512;
-        let mut errors: Vec<(f32, f32)> = Vec::with_capacity(NDIV as usize);
-        self.rms_error = 0.0;
-        // coarsely explore interval [1,4)
-        for i in 0..NDIV {
-            let x = 1f32 + (i as f32) * 3f32 / (NDIV as f32);
-            let error = inv_sqrt_error(x, self.c1, self.c2, self.c3);
-            errors.push((x, error));
-            self.rms_error += error*error;
-        }
-        self.rms_error /= NDIV as f32;
+        // STEP ONE:
+        // Coarsely explore interval [1,4) at `NDIV` grid points to get the general lay of the land.
+        let mut errors = (0..NDIV)
+            .map(|i| {
+                let x = 1f32 + (i as f32) * 3f32 / (NDIV as f32);
+                (x, inv_sqrt_error(x, self.c1, self.c2, self.c3))
+            })
+            .collect::<Vec<(f32, f32)>>();
+        self.rms_error = errors.iter().map(|e| e.1).sum::<f32>() / NDIV as f32;
         errors.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         self.max_error = errors[0].1;
         self.max_error_loc = errors[0].0;
-        // explore regions around top-4 errors
+
+        // STEP TWO:
+        // Explore regions around top-4 errors, hoping that there isn't a peak so narrow
+        // that it falls within the search grid points but doesn't cause the bordering points to be
+        // among the four largest.
         for i in 0..4 {
             // x is center, and interval is (x - 3/NSTEPS, x + 3/NSTEPS]
             let x1 = errors[i].0 - 3.0f32 / (NDIV as f32);
             let x2 = errors[i].0 + 3.0f32 / (NDIV as f32);
-            if self.derror_dx(x1) > 0.0 && self.derror_dx(x2) < 0.0 { // we bracket a peak
-                // now bisect to find the max
+            // If left-hand slope is positive and right-hand slope is negative,
+            // we bracket an error maximum /\ so now the critical step of
+            // correctly estimating the peak occurs.
+            if self.error_slope(x1) > 0.0 && self.error_slope(x2) < 0.0 {
+                // CRITICAL FUNCTION: finds the maximum error within a given interval.
+                // If this function is flawed, then the whole method is suspect.
+				// println!("{} steps between x1 and x2", ((x2 - x1) / f32::EPSILON) as u64);
                 let res = self.peak_find_x(x1, x2);
-                // println!("errors[{}] = {:?} => {:?}", i, errors[i], res);
                 errors[i] = res;
                 if self.max_error < errors[i].1 {
                     self.max_error = errors[i].1;
@@ -236,23 +259,23 @@ impl Default for Approx {
     }
 }
 
-impl PartialOrd for Approx {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let me = (self.rms_error, self.max_error);
-        let them = (other.rms_error, other.max_error);
-        //self.max_error.1.partial_cmp(&other.max_error.1)
-        //self.rms_error.partial_cmp(&other.rms_error)
-        me.partial_cmp(&them)
-    }
-}
+// impl PartialOrd for Approx {
+//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+//         let me = (self.rms_error, self.max_error);
+//         let them = (other.rms_error, other.max_error);
+//         //self.max_error.1.partial_cmp(&other.max_error.1)
+//         //self.rms_error.partial_cmp(&other.rms_error)
+//         me.partial_cmp(&them)
+//     }
+// }
 
-impl PartialEq for Approx {
-    fn eq(&self, other: &Self) -> bool {
-        self.c1 == other.c1 && self.c2 == other.c2 && self.c3 == other.c3
-    }
-}
+// impl PartialEq for Approx {
+//     fn eq(&self, other: &Self) -> bool {
+//         self.c1 == other.c1 && self.c2 == other.c2 && self.c3 == other.c3
+//     }
+// }
 
-impl Eq for Approx {}
+// impl Eq for Approx {}
 
 impl Display for Approx {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

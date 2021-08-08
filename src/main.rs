@@ -1,6 +1,6 @@
+#![warn(dead_code)]
 
 use std::time::Instant;
-//use textplots::{utils, Chart, Plot, Shape};
 use rayon::prelude::*;
 
 mod approx;
