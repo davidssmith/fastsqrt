@@ -120,31 +120,41 @@ impl Approx {
         y2 - y1
     }
     /// Find the peak of the function `error` within the interval `(a, b)`
-    fn peak_find_x(&self, a: f32, b: f32) -> (f32, f32) {
+    fn peak_find_x(&self, a: f32, b: f32, _error_thresh: f32) -> (f32, f32) {
+		assert!(a < b);
         let mut l = a;
         let mut r = b;
 		// let left_error = inv_sqrt_error(a, self.c1, self.c2, self.c3);
 		// let right_error = inv_sqrt_error(b, self.c1, self.c2, self.c3);
         loop {
-			let mut errors = Vec::new();
-			let mut x = a;
-			let dx = (b - a) * 0.01;
-			loop {
-				errors.push((x, inv_sqrt_error(x, self.c1, self.c2, self.c3)));
-				x += dx;
-				if x >= b {
-					break;
-				}
-			}
-			Chart::new(180, 60, l, r).lineplot(&Shape::Points(&errors)).nice();
+			// let mut errors = Vec::new();
+			// let mut x = a;
+			// let dx = (b - a) * 0.01;
+			// loop {
+			// 	errors.push((x, inv_sqrt_error(x, self.c1, self.c2, self.c3)));
+			// 	x += dx;
+			// 	if x >= b {
+			// 		break;
+			// 	}
+			// }
+			// Chart::new(180, 60, l, r).lineplot(&Shape::Points(&errors)).nice();
 
 			// we know that grad(a) > 0 and grad(b) < 0, so all that matters is grad at midpoint
         	let m = l + 0.5 * (r - l);
             let mid_slope = self.error_slope(m);
-			println!("{}...{}...{} {} {}", l, m, r, mid_slope, (r - l) / f32::EPSILON);
             if r - l <= 2f32 * f32::EPSILON  {
                 // FOUND IT!
-                break;
+				let left_error = inv_sqrt_error(l, self.c1, self.c2, self.c3);
+				let right_error = inv_sqrt_error(r, self.c1, self.c2, self.c3);
+				return if left_error > right_error {
+					// println!("Bisected left {}...{}...{} {} {}", l, m, r, mid_slope, left_error);
+
+					(l, left_error)
+				} else {
+					// println!("Bisected right {}...{}...{} {} {}", l, m, r, mid_slope, right_error);
+
+					(r, right_error)
+				};
             } else if mid_slope < 0.0 {
                 // maximum is to the left
                 r = m;
@@ -152,16 +162,29 @@ impl Approx {
                 // maximum is to the right
                 l = m;
             } else {
-                panic!("How'd we get here?");
+				// Something pathological, so let's just brute force search
+				// the whole interval. Looks like this only happens when we have
+				// a bad set of parameters, so let's try skipping it.
+				return (m, f32::MAX);
+				// let mut x = l;
+				// let mut emax = inv_sqrt_error(l, self.c1, self.c2, self.c3);
+				// let mut xmax = x;
+				// loop {
+				// 	x += 2f32 * f32::EPSILON;
+				// 	let e = inv_sqrt_error(x, self.c1, self.c2, self.c3);
+				// 	if e > emax {
+				// 		emax = e;
+				// 		xmax = x;
+				// 	}
+				// 	if x >= r {
+				// 		// println!("Brute forced {}...{}...{} {} {}", l, xmax, r, mid_slope, emax);
+				//
+				// 		return (xmax, emax);
+				// 	}
+				// }
             }
         }
-		let left_error = inv_sqrt_error(l, self.c1, self.c2, self.c3);
-		let right_error = inv_sqrt_error(r, self.c1, self.c2, self.c3);
-		if left_error > right_error {
-			(l, left_error)
-		} else {
-			(r, right_error)
-		}
+
 
     }
     /// Find the peak of the function `error` within the interval `(a, b)`
@@ -207,7 +230,7 @@ impl Approx {
                 (x, inv_sqrt_error(x, self.c1, self.c2, self.c3))
             })
             .collect::<Vec<(f32, f32)>>();
-        self.rms_error = errors.iter().map(|e| e.1).sum::<f32>() / NDIV as f32;
+        self.rms_error = errors.iter().map(|e| e.1).sum::<f32>().powi(2) / NDIV as f32;
         errors.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         self.max_error = errors[0].1;
         self.max_error_loc = errors[0].0;
@@ -227,7 +250,7 @@ impl Approx {
                 // CRITICAL FUNCTION: finds the maximum error within a given interval.
                 // If this function is flawed, then the whole method is suspect.
 				// println!("{} steps between x1 and x2", ((x2 - x1) / f32::EPSILON) as u64);
-                let res = self.peak_find_x(x1, x2);
+                let res = self.peak_find_x(x1, x2, self.max_error);
                 errors[i] = res;
                 if self.max_error < errors[i].1 {
                     self.max_error = errors[i].1;
