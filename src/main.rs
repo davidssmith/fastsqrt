@@ -9,28 +9,35 @@ use approx::Approx;
 //use minihist::MiniHist;
 
 struct Population {
-    approx: Vec<Approx>,
+    rms_approx: Vec<Approx>,
+    minmax_approx: Vec<Approx>,
 }
 
 impl Population {
     fn with_capacity(n: usize) -> Population {
-        let approx: Vec<Approx> = (0..n)
+        let rms_approx: Vec<Approx> = (0..n)
+            .map(|i| Approx::from_seed(0x1337 + 0xc0ffee * i as u64))
+            .collect();
+        let minmax_approx: Vec<Approx> = (0..n)
             .map(|i| Approx::from_seed(0x1337 + 0xc0ffee * i as u64))
             .collect();
         // Initial population:
         // 0x5f1ffff9, 0.703952253, 2.38924456
         // 0x5f601800, 0.2485, 4.7832
-        Population { approx }
+        Population { rms_approx, minmax_approx }
     }
     fn evolve(&mut self, nt: u32) {
         let nkeep = 100;
         let mut t = 1;
-        println!("gen,max,maxloc,rms,c1,c2,c3,nkeep,tper");
-        println!("{},{},{},", t, self.approx[0], nkeep);
+        println!("goal,gen,max,maxloc,rms,c1,c2,c3,nkeep,tper(ns)");
+        println!("rms,{},{},{},", t, self.rms_approx[0], nkeep);
+        println!("max,{},{},{},", t, self.minmax_approx[0], nkeep);
         let start = Instant::now();
         loop {
-            self.approx[nkeep..].par_iter_mut().for_each(|c| c.step(t, nt));
-            self.approx.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            self.rms_approx[nkeep..].par_iter_mut().for_each(|c| c.step(t, nt));
+            self.rms_approx.sort_by(|a,b| a.rms_error.partial_cmp(&b.rms_error).unwrap());
+            self.minmax_approx[nkeep..].par_iter_mut().for_each(|c| c.step(t, nt));
+            self.minmax_approx.sort_by(|a,b| a.max_error.partial_cmp(&b.max_error).unwrap());
             // let tscale: u32 = 100 * t / nt + 1;
             // nkeep = 1 + 99 / tscale as usize;
             // let best_max_error = self.approx[0].max_error.1;
@@ -50,15 +57,23 @@ impl Population {
                 //Chart::new(180, 60, -5.0, 3.0)
                 //    .lineplot(&Shape::Bars(&hist[..]))
                 //    .nice();
-                let tper = start.elapsed().as_nanos() / (t as u128) / (self.approx.len() as u128);
-                println!("{},{},{},{}s", t, self.approx[0], nkeep, tper);
+                let tper = start.elapsed().as_nanos() / (t as u128) / (self.rms_approx.len() as u128);
+                println!("rms,{},{},{},{}", t, self.rms_approx[0], nkeep, tper);
+                let tper = start.elapsed().as_nanos() / (t as u128) / (self.minmax_approx.len() as u128);
+                println!("max,{},{},{},{}", t, self.minmax_approx[0], nkeep, tper);
             }
             // fill rest of population with offspring of keepers
-            for child in 2*nkeep..self.approx.len() {
+            for child in 2*nkeep..self.rms_approx.len() {
                 let p = child % nkeep;
-                self.approx[child].c1 = self.approx[p].c1;
-                self.approx[child].c2 = self.approx[p].c2;
-                self.approx[child].c3 = self.approx[p].c3;
+                self.rms_approx[child].c1 = self.rms_approx[p].c1;
+                self.rms_approx[child].c2 = self.rms_approx[p].c2;
+                self.rms_approx[child].c3 = self.rms_approx[p].c3;
+            }
+            for child in 2*nkeep..self.minmax_approx.len() {
+                let p = child % nkeep;
+                self.minmax_approx[child].c1 = self.minmax_approx[p].c1;
+                self.minmax_approx[child].c2 = self.minmax_approx[p].c2;
+                self.minmax_approx[child].c3 = self.minmax_approx[p].c3;
             }
             t += 1;
         }
@@ -67,8 +82,6 @@ impl Population {
 
 fn main() {
     let mut p = Population::with_capacity(10000);
-    let mut approx_start = p.approx[0].clone();
-    approx_start.search_interval();
     // println!(
     //     "{}",
     //     plot(
@@ -85,5 +98,4 @@ fn main() {
     //     )
     // );
     p.evolve(100_000_000);
-    println!("start: {}\nend:   {}", approx_start, p.approx[0]);
 }

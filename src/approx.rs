@@ -41,7 +41,9 @@ pub struct Approx {
     pub c1: u32,
     pub c2: f32,
     pub c3: f32,
-    pub max_error: (f32, f32),
+    pub max_error: f32,
+    /// x position where max error occurs
+    pub max_error_loc: f32,  
     pub rms_error: f32,
 }
 
@@ -50,23 +52,28 @@ impl Approx {
         let mut rng = Pcg64::seed_from_u64(seed);
         // 0x5f601800, 0.2485, 4.7832
         //c1: 0x5f601800, c2: 0.2485, c3: 4.7832,
-        let c1 = rng.gen_range(0x59400000..0x5f400000);
-        let c2: f32 = rng.gen();
-        let c3: f32 = 3.0 * rng.gen::<f32>() + 2.0;
-        //let c1 = 0x5f5f9f17;
-        //let c2 = 0.250249714;
-        //let c3 = 4.761075497;
-        // Kadlec's:
-        //let c1 = 0x5F1FFFF9;
-        //let c2 = 0.703952253;
-        //let c3 = 2.38924456;
-        //let c1 = 0x5f21b30b;
-        //let c2 = 0.685413182;
-        //let c3 = 2.432130098;
+        let r: f32 = rng.gen();
+        let (c1, c2, c3): (u32, f32, f32) = if r < 0.25 {
+            // lowest max error found so far
+            (0x5f5e555c, 0.255280614, 4.698304653)
+        } else if r < 0.5 {
+            // lowest RMS error found so far
+            (0x5f1abf31, 0.759093463, 2.271862507)
+        } else if r < 0.75 {
+            // Kadlec's:
+            (0x5F1FFFF9, 0.703952253, 2.38924456)
+        } else {
+            // totally random
+            let c1 = rng.gen_range(0x59400000..0x5f400000);
+            let c2: f32 = rng.gen();
+            let c3: f32 = 3.0 * rng.gen::<f32>() + 2.0;
+            (c1, c2, c3)
+        };
         let mut a = Approx {
             rng,
             c1, c2, c3,
-            max_error: (0f32, std::f32::NAN),
+            max_error: std::f32::NAN,
+            max_error_loc: 0.0,
             rms_error: std::f32::NAN,
         };
         a.search_interval();
@@ -187,7 +194,8 @@ impl Approx {
         }
         self.rms_error /= NDIV as f32;
         errors.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        self.max_error = errors[0];
+        self.max_error = errors[0].1;
+        self.max_error_loc = errors[0].0;
         // explore regions around top-4 errors
         for i in 0..4 {
             // x is center, and interval is (x - 3/NSTEPS, x + 3/NSTEPS]
@@ -198,8 +206,9 @@ impl Approx {
                 let res = self.peak_find_x(x1, x2);
                 // println!("errors[{}] = {:?} => {:?}", i, errors[i], res);
                 errors[i] = res;
-                if self.max_error.1 < errors[i].1 {
-                    self.max_error = errors[i];
+                if self.max_error < errors[i].1 {
+                    self.max_error = errors[i].1;
+                    self.max_error_loc = errors[i].0;
                 }
             }
         }
@@ -215,10 +224,11 @@ impl Default for Approx {
     fn default() -> Self {
         let mut a = Approx {
             rng: Pcg64::from_rng(thread_rng()).unwrap(),
-            c1: 0x5f1ffff9u32,
-            c2: 0.703952253f32,
-            c3: 2.38924456f32,
-            max_error: (0f32, std::f32::MAX),
+            c1: 0x5f3759df,
+            c2: 1.5,
+            c3: 0.5,
+            max_error: std::f32::MAX,
+            max_error_loc: 0.0,
             rms_error: std::f32::MAX,
         };
         a.search_interval();
@@ -228,8 +238,8 @@ impl Default for Approx {
 
 impl PartialOrd for Approx {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        let me = (self.rms_error, self.max_error.1);
-        let them = (other.rms_error, other.max_error.1);
+        let me = (self.rms_error, self.max_error);
+        let them = (other.rms_error, other.max_error);
         //self.max_error.1.partial_cmp(&other.max_error.1)
         //self.rms_error.partial_cmp(&other.rms_error)
         me.partial_cmp(&them)
@@ -249,7 +259,7 @@ impl Display for Approx {
         write!(
             f,
             "{:.10},{},{:e},{:x},{:.9},{:1.9}",
-            self.max_error.1, self.max_error.0, self.rms_error, self.c1, self.c2, self.c3
+            self.max_error, self.max_error_loc, self.rms_error, self.c1, self.c2, self.c3
         )
     }
 }
