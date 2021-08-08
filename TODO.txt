@@ -1,0 +1,4 @@
+make generic for any function passed, it will find some parameters that
+approximate it
+
+
