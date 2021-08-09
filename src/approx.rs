@@ -54,11 +54,12 @@ impl Approx {
         //c1: 0x5f601800, c2: 0.2485, c3: 4.7832,
         let r: f32 = rng.gen();
         let (c1, c2, c3): (u32, f32, f32) = if r < 0.25 {
-            // lowest max error found so far
-            (0x5f5e555c, 0.255280614, 4.698304653)
+            // lowest max error found so far 0.0006499674
+            //(0x5f5e555c, 0.255280614, 4.698304653)
+            (0x5f1ffdd8,0.703952253,2.389244556)
         } else if r < 0.5 {
-            // lowest RMS error found so far
-            (0x5f1abf31, 0.759093463, 2.271862507)
+            // lowest RMS error found so far 1.2393217e-7
+            (0x5f1ac003,0.759093463,2.271862507)
         } else if r < 0.75 {
             // Kadlec's:
             (0x5F1FFFF9, 0.703952253, 2.38924456)
@@ -230,7 +231,7 @@ impl Approx {
                 (x, inv_sqrt_error(x, self.c1, self.c2, self.c3))
             })
             .collect::<Vec<(f32, f32)>>();
-        self.rms_error = errors.iter().map(|e| e.1).sum::<f32>().powi(2) / NDIV as f32;
+        self.rms_error = errors.iter().map(|e| e.1*e.1).sum::<f32>() / NDIV as f32;
         errors.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         self.max_error = errors[0].1;
         self.max_error_loc = errors[0].0;
@@ -239,7 +240,7 @@ impl Approx {
         // Explore regions around top-4 errors, hoping that there isn't a peak so narrow
         // that it falls within the search grid points but doesn't cause the bordering points to be
         // among the four largest.
-        for i in 0..4 {
+        for i in 0..16 {
             // x is center, and interval is (x - 3/NSTEPS, x + 3/NSTEPS]
             let x1 = errors[i].0 - 3.0f32 / (NDIV as f32);
             let x2 = errors[i].0 + 3.0f32 / (NDIV as f32);

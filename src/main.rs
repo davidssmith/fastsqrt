@@ -27,7 +27,7 @@ impl Population {
         Population { rms_approx, minmax_approx }
     }
     fn evolve(&mut self, nt: u32) {
-        let nkeep = 100;
+        let nkeep = self.rms_approx.len().div_euclid(10) as usize; 
         let mut t = 1;
         println!("goal,gen,max,maxloc,rms,c1,c2,c3,nkeep,tper(ns)");
         println!("rms,{},{},{},", t, self.rms_approx[0], nkeep);
