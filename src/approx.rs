@@ -59,10 +59,10 @@ impl Approx {
             (0x5f1ffdd8,0.703952253,2.389244556)
         } else if r < 0.5 {
             // lowest RMS error found so far 1.2393217e-7
-            (0x5f1ac003,0.759093463,2.271862507)
-        } else if r < 0.75 {
-            // Kadlec's:
-            (0x5F1FFFF9, 0.703952253, 2.38924456)
+            (0x5f1ab802,0.759414434,2.271231174)
+        // } else if r < 0.75 {
+        //     // Kadlec's:
+        //     (0x5F1FFFF9, 0.703952253, 2.38924456)
         } else {
             // totally random
             let c1 = rng.gen_range(0x59400000..0x5f400000);
@@ -115,14 +115,19 @@ impl Approx {
 	/// estimate the gradient w.r.t. `x` of `error` at location `x`. Note that this isn't scaled
 	/// by dx because we don't care about the scale, just the sign.
     fn error_slope(&self, x: f32) -> f32 {
-		const DX: f32 = 1024f32 * f32::EPSILON;
-        let y1 = inv_sqrt_error(x - DX, self.c1, self.c2, self.c3);
-        let y2 = inv_sqrt_error(x + DX, self.c1, self.c2, self.c3);
-        y2 - y1
+		let mut avg_diff: f32 = 0.0;
+		let mut dx = 2f32 * f32::EPSILON;
+		for _ in 1..8 {
+			let y1 = inv_sqrt_error(x - dx, self.c1, self.c2, self.c3);
+			let y2 = inv_sqrt_error(x + dx, self.c1, self.c2, self.c3);
+			avg_diff += y2 - y1;
+			dx *= 2f32;
+		}
+		avg_diff
     }
     /// Find the peak of the function `error` within the interval `(a, b)`
     fn peak_find_x(&self, a: f32, b: f32, _error_thresh: f32) -> (f32, f32) {
-		assert!(a < b);
+		// assert!(a < b);
         let mut l = a;
         let mut r = b;
 		// let left_error = inv_sqrt_error(a, self.c1, self.c2, self.c3);
