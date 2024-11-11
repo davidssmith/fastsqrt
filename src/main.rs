@@ -1,42 +1,42 @@
-
+use rand::rngs::ThreadRng;
+#[allow(unused_imports)]
+use rand::thread_rng;
+use rayon::prelude::*;
 use std::time::Instant;
 use textplots::{utils, Chart, Plot, Shape};
-use rayon::prelude::*;
 
 mod approx;
 use approx::Approx;
 mod minihist;
 use minihist::MiniHist;
 
-struct Population {
-    approx: Vec<Approx>,
-}
+struct Population(Vec<Approx>);
 
 impl Population {
     fn with_capacity(n: usize) -> Population {
-        let approx: Vec<Approx> = (0..n)
-            .map(|i| Approx::from_seed(0x1337 + 0xc0ffee * i as u64))
-            .collect();
+        let approx: Vec<Approx> = (0..n).map(|_| Approx::default()).collect();
         // Initial population:
         // 0x5f1ffff9, 0.703952253, 2.38924456
         // 0x5f601800, 0.2485, 4.7832
-        Population { approx }
+        Population(approx)
     }
-    fn evolve(&mut self, nt: u32) {
-        let nkeep = (0.05 * self.approx.len() as f32) as usize;
+    fn evolve(&mut self) {
+        // TODO: random walk nkeep fraction as well
+        let nkeep = (0.05 * self.0.len() as f32) as usize;
         let mut t = 1;
         loop {
-            self.approx[nkeep..].par_iter_mut().for_each(|c| c.step(t, nt));
-            self.approx.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            self.0[nkeep..].iter_mut().for_each(|c| c.mutate());
+            self.0.iter_mut().for_each(|a| a.calculate_fitness());
+            self.0.sort_by(|a, b| a.partial_cmp(b).unwrap());
             // let tscale: u32 = 100 * t / nt + 1;
             // nkeep = 1 + 99 / tscale as usize;
             // let best_max_error = self.approx[0].max_error.1;
             // let thresh = 0.1 / (t as f32);
             // for (i, a) in self.approx.iter().take(50).enumerate() {
-                // if a.max_error.1 > 1.01  * best_max_error {
-                    // nkeep = i;
-                    // break;
-                // }
+            // if a.max_error.1 > 1.01  * best_max_error {
+            // nkeep = i;
+            // break;
+            // }
             // }
             if t % 1000 == 0 {
                 // let mut hist = MiniHist::with_range(-5.0, 5.0, 50);
@@ -47,14 +47,14 @@ impl Population {
                 // Chart::new(180, 60, -5.0, 5.0)
                 //     .lineplot(&Shape::Bars(&hist[..]))
                 //     .nice();
-                println!("{:8}. {} (kept {})", t, self.approx[0], nkeep);
+                println!("{:8}. {} (kept {})", t, self.0[0], nkeep);
             }
             // fill rest of population with offspring of keepers
-            for child in 2*nkeep..self.approx.len() {
+            for child in 2 * nkeep..self.0.len() {
                 let p = child % nkeep;
-                self.approx[child].c1 = self.approx[p].c1;
-                self.approx[child].c2 = self.approx[p].c2;
-                self.approx[child].c3 = self.approx[p].c3;
+                self.0[child].c1 = self.0[p].c1;
+                self.0[child].c2 = self.0[p].c2;
+                self.0[child].c3 = self.0[p].c3;
             }
             t += 1;
         }
@@ -62,9 +62,7 @@ impl Population {
 }
 
 fn main() {
-    let mut p = Population::with_capacity(1000);
-    let mut approx_start = p.approx[0].clone();
-    approx_start.search_interval();
+    let mut p = Population::with_capacity(512);
     let start = Instant::now();
     // println!(
     //     "{}",
@@ -81,7 +79,6 @@ fn main() {
     //             .with_caption("I'm a doctor, not an engineer.".to_string())
     //     )
     // );
-    p.evolve(100_000_000);
-    println!("start: {}\nend:   {}", approx_start, p.approx[0]);
+    p.evolve();
     println!("{:?} elapsed", Instant::now() - start);
 }
