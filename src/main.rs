@@ -14,7 +14,9 @@ struct Population(Vec<Approx>);
 
 impl Population {
     fn with_capacity(n: usize) -> Population {
-        let approx: Vec<Approx> = (0..n).map(|_| Approx::default()).collect();
+        let approx: Vec<Approx> = (0..n)
+            .map(|i| Approx::from_seed(i as u64 * 11111))
+            .collect();
         // Initial population:
         // 0x5f1ffff9, 0.703952253, 2.38924456
         // 0x5f601800, 0.2485, 4.7832
@@ -25,8 +27,9 @@ impl Population {
         let nkeep = (0.05 * self.0.len() as f32) as usize;
         let mut t = 1;
         loop {
-            self.0[nkeep..].iter_mut().for_each(|c| c.mutate());
-            self.0.iter_mut().for_each(|a| a.calculate_fitness());
+            let (_, to_mutate) = self.0.split_at_mut(nkeep);
+            to_mutate.par_iter_mut().for_each(|c| c.mutate());
+            to_mutate.par_iter_mut().for_each(|a| a.calculate_fitness());
             self.0.sort_by(|a, b| a.partial_cmp(b).unwrap());
             // let tscale: u32 = 100 * t / nt + 1;
             // nkeep = 1 + 99 / tscale as usize;

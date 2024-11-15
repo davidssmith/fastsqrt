@@ -1,5 +1,7 @@
-use rand::rngs::ThreadRng;
-use rand::{thread_rng, Rng, SeedableRng};
+//use rand::rngs::ThreadRng;
+use rand::{Rng, SeedableRng};
+use rand_pcg::Pcg64;
+
 use rand_distr::StandardNormal;
 //use rand_pcg::Pcg64;
 use std::cmp::Ordering;
@@ -39,12 +41,11 @@ pub struct Approx {
     pub c2: f32,
     pub c3: f32,
     pub rms_error: f32,
-    rng: ThreadRng,
+    rng: Pcg64,
 }
 
 impl Approx {
-    /*
-    pub fn default() -> Self {
+    pub fn from_seed(seed: u64) -> Self {
         // 0x5f601800, 0.2485, 4.7832
         //c1: 0x5f601800, c2: 0.2485, c3: 4.7832,
         // let c1 = rng.gen_range(0x59400000..0x5f400000);
@@ -67,12 +68,11 @@ impl Approx {
             c2,
             c3,
             rms_error: std::f32::MAX,
-            rng: rand::thread_rng(),
+            rng: Pcg64::seed_from_u64(seed),
         };
         a.calculate_fitness();
         a
     }
-    */
     pub fn mutate(&mut self) {
         let r: f32 = self.rng.gen();
         let val: f32 = self.rng.sample(StandardNormal);
@@ -180,20 +180,6 @@ impl Approx {
             self.rms_error += error * error;
         }
         self.rms_error /= NDIV as f32;
-    }
-}
-
-impl Default for Approx {
-    fn default() -> Self {
-        let mut a = Approx {
-            c1: 0x5f1ffff9u32,
-            c2: 0.703952253f32,
-            c3: 2.38924456f32,
-            rms_error: std::f32::MAX,
-            rng: rand::thread_rng(),
-        };
-        a.calculate_fitness();
-        a
     }
 }
 
